@@ -13,6 +13,7 @@ import contextvars
 import json
 import os
 import re
+import sys
 import time
 
 try:  # sentry-sdk is optional
@@ -59,6 +60,42 @@ def _approx_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+def _set(span, key, value):
+    """Set a span attribute; telemetry must never be able to break the app."""
+    if span is None:
+        return
+    try:
+        (getattr(span, "set_attribute", None) or span.set_data)(key, value)
+    except Exception:
+        pass
+
+
+@contextlib.contextmanager
+def _span(op, name, attrs):
+    """Open a Sentry span (yields None if Sentry misbehaves). Errors from the body still propagate."""
+    try:
+        cm = sentry_sdk.start_span(op=op, name=name)  # no attributes= kwarg: not supported by sentry-sdk 2.x
+        span = cm.__enter__()
+        for k, v in attrs.items():
+            _set(span, k, v)
+    except Exception:
+        yield None
+        return
+    try:
+        yield span
+    except BaseException:
+        try:
+            cm.__exit__(*sys.exc_info())
+        except Exception:
+            pass
+        raise
+    else:
+        try:
+            cm.__exit__(None, None, None)
+        except Exception:
+            pass
+
+
 @contextlib.contextmanager
 def agent(name: str):
     """One agent run, e.g. `with agent("Quiz Writer"):`. Model calls inside nest under it."""
@@ -68,10 +105,10 @@ def agent(name: str):
     full = f"Saathi {name}"
     token = _agent.set(full)
     try:
-        with sentry_sdk.start_span(
-            op="gen_ai.invoke_agent",
-            name=f"invoke_agent {full}",
-            attributes={"gen_ai.operation.name": "invoke_agent", "gen_ai.agent.name": full},
+        with _span(
+            "gen_ai.invoke_agent",
+            f"invoke_agent {full}",
+            {"gen_ai.operation.name": "invoke_agent", "gen_ai.agent.name": full},
         ):
             yield
     finally:
@@ -105,21 +142,21 @@ class TracedLLM:
                 [{"role": m["role"], "parts": [{"type": "text", "content": m["content"]}]} for m in messages]
             )
         t0 = time.perf_counter()
-        with sentry_sdk.start_span(op="gen_ai.chat", name=f"chat {model}", attributes=attrs) as span:
+        with _span("gen_ai.chat", f"chat {model}", attrs) as span:
             try:
                 reply = self._inner.chat(messages, json_mode=json_mode, temperature=temperature)
             except Exception as exc:
-                span.set_data("error.type", type(exc).__name__)
+                _set(span, "error.type", type(exc).__name__)
                 raise
             usage = getattr(self._inner, "last_usage", None) or {}
             tin = usage.get("prompt_tokens") or _approx_tokens("".join(m["content"] for m in messages))
             tout = usage.get("completion_tokens") or _approx_tokens(reply or "")
-            span.set_data("gen_ai.response.model", model)
-            span.set_data("gen_ai.usage.input_tokens", tin)
-            span.set_data("gen_ai.usage.output_tokens", tout)
-            span.set_data("gen_ai.usage.total_tokens", tin + tout)
-            span.set_data("saathi.latency_ms", round((time.perf_counter() - t0) * 1000))
+            _set(span, "gen_ai.response.model", model)
+            _set(span, "gen_ai.usage.input_tokens", tin)
+            _set(span, "gen_ai.usage.output_tokens", tout)
+            _set(span, "gen_ai.usage.total_tokens", tin + tout)
+            _set(span, "saathi.latency_ms", round((time.perf_counter() - t0) * 1000))
             if _capture:
-                span.set_data("gen_ai.output.messages", json.dumps(
+                _set(span, "gen_ai.output.messages", json.dumps(
                     [{"role": "assistant", "parts": [{"type": "text", "content": reply}]}]))
             return reply
