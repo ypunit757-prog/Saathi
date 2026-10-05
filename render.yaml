@@ -1,0 +1,37 @@
+# Render Blueprint: Dashboard -> New -> Blueprint -> pick this repo.
+services:
+  - type: web
+    name: saathi
+    runtime: python
+    plan: starter            # a persistent disk needs a paid plan; see DEPLOY.md for the free option
+    buildCommand: pip install -r requirements.txt
+    # one worker + threads: Saathi keeps everything in a single SQLite file
+    startCommand: gunicorn "saathi.app:create_app()" --workers 1 --threads 4 --timeout 180 --bind 0.0.0.0:$PORT
+    healthCheckPath: /healthz
+    autoDeploy: true
+    disk:
+      name: saathi-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: SAATHI_DB
+        value: /var/data/saathi.db
+      - key: SAATHI_LLM
+        value: cloud
+      - key: SAATHI_CLOUD_MODEL
+        value: gemma-3-27b-it
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        value: "1.0"
+      # secrets: you type these into the Render dashboard (sync: false = never stored in git)
+      - key: SAATHI_PASSWORD
+        sync: false
+      - key: SAATHI_CLOUD_API_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: SERPAPI_API_KEY
+        sync: false

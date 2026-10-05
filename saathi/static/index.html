@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Saathi</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="page">
+  <aside class="margin" aria-label="Today">
+    <h1 class="wordmark">Saathi</h1>
+    <p class="note" id="m-due"><span class="big">–</span> due now</p>
+    <p class="note" id="m-streak"><span class="big">–</span> day streak</p>
+    <p class="note small" id="m-for"></p>
+  </aside>
+
+  <main class="sheet">
+    <header class="top">
+      <nav class="tabs" role="tablist" aria-label="Sections">
+        <button role="tab" data-tab="study" aria-selected="true">Study</button>
+        <button role="tab" data-tab="ask" aria-selected="false">Ask my notes</button>
+        <button role="tab" data-tab="notes" aria-selected="false">Notes</button>
+        <button role="tab" data-tab="progress" aria-selected="false">Progress</button>
+        <button role="tab" data-tab="letter" aria-selected="false">Letter</button>
+      </nav>
+      <div class="meta">
+        <span id="engine" class="engine"></span>
+        <button class="link" id="open-profile">Who is this for?</button>
+      </div>
+    </header>
+
+    <section id="tab-study" class="view" role="tabpanel">
+      <div id="study-empty" hidden></div>
+      <div id="study-card" hidden>
+        <div class="confidence" role="group" aria-label="How sure are you?">
+          <span>How sure are you?</span>
+          <button id="conf-no" class="seg on" aria-pressed="true">Not sure</button>
+          <button id="conf-yes" class="seg" aria-pressed="false">Sure</button>
+        </div>
+        <p id="q" class="question"></p>
+        <ol id="opts" class="options"></ol>
+        <div id="result" class="result" hidden>
+          <p id="r-line" class="verdict"></p>
+          <p id="r-expl"></p>
+          <p id="r-why" class="pencil" hidden></p>
+          <p id="r-next" class="small"></p>
+          <button id="next" class="primary">Next question</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-ask" class="view" role="tabpanel" hidden>
+      <form id="ask-form" class="row">
+        <label class="sr" for="ask-q">Question</label>
+        <input id="ask-q" type="text" placeholder="Ask anything your notes should answer" autocomplete="off" required>
+        <button class="primary" type="submit">Ask</button>
+      </form>
+      <label id="web-wrap" class="small" hidden><input id="ask-web" type="checkbox"> Also search the web (answers will say when they come from the web)</label>
+      <div id="ask-out"></div>
+    </section>
+
+    <section id="tab-notes" class="view" role="tabpanel" hidden>
+      <form id="note-form" class="stack">
+        <label for="n-title">Title</label>
+        <input id="n-title" type="text" placeholder="Photosynthesis, chapter 4">
+        <label for="n-text">Paste notes, or choose a .txt, .md or .pdf file</label>
+        <textarea id="n-text" rows="7" placeholder="Paste at least a few sentences."></textarea>
+        <div class="row">
+          <input id="n-file" type="file" accept=".txt,.md,.pdf">
+          <button class="primary" type="submit">Save notes</button>
+        </div>
+      </form>
+      <div id="note-msg" class="small" role="status"></div>
+      <ul id="note-list" class="docs"></ul>
+    </section>
+
+    <section id="tab-progress" class="view" role="tabpanel" hidden>
+      <div id="progress"></div>
+    </section>
+
+    <section id="tab-letter" class="view" role="tabpanel" hidden>
+      <p>Saathi reads this week's answers and writes you a short letter. It only uses numbers that are really in your history.</p>
+      <button id="write-letter" class="primary">Write this week's letter</button>
+      <article id="letter" class="letter" hidden></article>
+      <button id="listen-letter" class="link" hidden>Listen to the letter</button>
+      <audio id="letter-audio" hidden></audio>
+      <button id="print-letter" class="link" hidden>Print the letter</button>
+    </section>
+  </main>
+</div>
+
+<dialog id="profile">
+  <form method="dialog" id="profile-form" class="stack">
+    <h2>Who is Saathi for?</h2>
+    <p class="small">Saathi is built for one person. These answers shape how it talks to them. They are kept with Saathi (on this computer when you run it locally).</p>
+    <label for="p-name">Their name</label>
+    <input id="p-name" type="text">
+    <label for="p-goal">What are they working toward?</label>
+    <input id="p-goal" type="text" placeholder="Board exams in March">
+    <label for="p-lang">How should Saathi talk?</label>
+    <input id="p-lang" type="text" placeholder="Hinglish: Hindi and English mixed, Roman script">
+    <label for="p-tone">Tone</label>
+    <input id="p-tone" type="text" placeholder="Warm, a little teasing, never preachy">
+    <label for="p-mot">What keeps them going?</label>
+    <input id="p-mot" type="text" placeholder="Wants to make the family proud">
+    <div class="row end">
+      <button type="button" class="link" id="p-cancel">Cancel</button>
+      <button class="primary" type="submit" value="save">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>

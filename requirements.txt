@@ -1,0 +1,6 @@
+flask>=3.0
+requests>=2.31
+pypdf>=4.0          # optional: only needed to upload PDF notes
+gunicorn>=22.0      # production web server (used on Render)
+sentry-sdk[flask]>=2.64   # optional: Sentry monitoring + agent tracing (needs SENTRY_DSN)
+pytest>=8.0         # optional: only needed to run the tests
