@@ -21,7 +21,7 @@ services:
       - key: SAATHI_LLM
         value: cloud
       - key: SAATHI_CLOUD_MODEL
-        value: gemma-3-27b-it
+        value: gemma-4-31b-it
       - key: SENTRY_TRACES_SAMPLE_RATE
         value: "1.0"
       # secrets: you type these into the Render dashboard (sync: false = never stored in git)
