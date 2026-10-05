@@ -19,10 +19,21 @@ from .rag import STOP, content_words, sentences
 DEFAULT_HOST = "http://127.0.0.1:11434"
 DEFAULT_MODEL = "gemma3:4b"
 DEFAULT_EMBED = "nomic-embed-text"
-# Hosted Gemma through Google's OpenAI-compatible endpoint. Any OpenAI-compatible provider
-# (DigitalOcean Gradient, a GPU Droplet running Ollama/vLLM, ...) works by changing the env vars.
-DEFAULT_CLOUD_BASE = "https://generativelanguage.googleapis.com/v1beta/openai"
-DEFAULT_CLOUD_MODEL = "gemma-3-27b-it"
+# Hosted Gemma through the Gemini API (native generateContent; Google's OpenAI-compatible
+# endpoint documents Gemini models only and answers 404 for Gemma). Any OpenAI-compatible
+# provider (DigitalOcean Gradient, a GPU Droplet running Ollama/vLLM, ...) works with
+# SAATHI_CLOUD_PROVIDER=openai plus SAATHI_CLOUD_BASE_URL.
+DEFAULT_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
+DEFAULT_CLOUD_MODEL = "gemma-4-31b-it"
+
+
+def _http_error(r):
+    """requests' default message hides the server's explanation; include it."""
+    try:
+        detail = r.json().get("error", {}).get("message") or r.text
+    except ValueError:
+        detail = r.text
+    raise requests.HTTPError(f"{r.status_code} from {r.url.split('?')[0]}: {str(detail)[:300]}", response=r)
 
 
 def extract_json(text: str):
@@ -111,12 +122,12 @@ class OllamaLLM:
 
 
 class CloudLLM:
-    """Any OpenAI-compatible chat API (default: Gemma on Google AI). Used when deployed to the cloud."""
+    """Any OpenAI-compatible chat API (SAATHI_CLOUD_PROVIDER=openai + SAATHI_CLOUD_BASE_URL)."""
 
     kind = "cloud"
 
     def __init__(self, base_url=None, api_key=None, model=None, timeout=120):
-        self.base_url = (base_url or os.getenv("SAATHI_CLOUD_BASE_URL") or DEFAULT_CLOUD_BASE).rstrip("/")
+        self.base_url = (base_url or os.getenv("SAATHI_CLOUD_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
         self.api_key = api_key or os.getenv("SAATHI_CLOUD_API_KEY", "")
         self.model = model or os.getenv("SAATHI_CLOUD_MODEL", DEFAULT_CLOUD_MODEL)
         self.timeout = timeout
@@ -150,10 +161,81 @@ class CloudLLM:
             headers={"Authorization": f"Bearer {self.api_key}"},
             timeout=self.timeout,
         )
-        r.raise_for_status()
+        if not r.ok:
+            _http_error(r)
         data = r.json()
         self._local.usage = data.get("usage")
         return data["choices"][0]["message"]["content"] or ""
+
+    def embed(self, texts):
+        return None  # retrieval falls back to BM25, which needs no embedding model
+
+
+class GeminiLLM:
+    """Gemma (or Gemini) through the Gemini API's native generateContent endpoint."""
+
+    kind = "cloud"
+
+    def __init__(self, api_key=None, model=None, base_url=None, timeout=120):
+        self.api_key = api_key or os.getenv("SAATHI_CLOUD_API_KEY", "")
+        self.model = model or os.getenv("SAATHI_CLOUD_MODEL") or DEFAULT_CLOUD_MODEL
+        self.base_url = (base_url or os.getenv("SAATHI_CLOUD_BASE_URL") or DEFAULT_GEMINI_BASE).rstrip("/")
+        self.thinking = os.getenv("SAATHI_CLOUD_THINKING", "minimal")  # "" to leave the API default
+        self.timeout = timeout
+        self._local = threading.local()
+
+    @property
+    def name(self):
+        return self.model
+
+    @property
+    def last_usage(self):
+        return getattr(self._local, "usage", None)
+
+    def available(self) -> bool:
+        return bool(self.api_key)
+
+    @staticmethod
+    def _body(messages, temperature, json_mode, thinking):
+        system = [m["content"] for m in messages if m["role"] == "system"]
+        body = {
+            "contents": [
+                {"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]}
+                for m in messages
+                if m["role"] != "system"
+            ],
+            "generationConfig": {"temperature": temperature},
+        }
+        if system:
+            body["systemInstruction"] = {"parts": [{"text": "\n\n".join(system)}]}
+        if json_mode and os.getenv("SAATHI_CLOUD_JSON_MODE") == "1":
+            body["generationConfig"]["responseMimeType"] = "application/json"
+        if thinking:
+            body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": thinking}
+        return body
+
+    def chat(self, messages, json_mode=False, temperature=0.3):
+        url = f"{self.base_url}/models/{self.model}:generateContent"
+        headers = {"x-goog-api-key": self.api_key, "Content-Type": "application/json"}
+        thinking = self.thinking
+        for attempt in range(2):
+            r = requests.post(url, json=self._body(messages, temperature, json_mode, thinking),
+                              headers=headers, timeout=self.timeout)
+            if r.status_code == 400 and thinking and attempt == 0:
+                thinking = ""  # this model does not accept thinkingConfig: retry without it
+                continue
+            break
+        if not r.ok:
+            _http_error(r)
+        data = r.json()
+        meta = data.get("usageMetadata") or {}
+        self._local.usage = {"prompt_tokens": meta.get("promptTokenCount"),
+                             "completion_tokens": meta.get("candidatesTokenCount")}
+        cands = data.get("candidates") or []
+        if not cands:
+            raise ValueError("the model returned no answer (" + str(data.get("promptFeedback", "blocked or empty")) + ")")
+        parts = (cands[0].get("content") or {}).get("parts") or []
+        return "".join(p.get("text", "") for p in parts if not p.get("thought"))
 
     def embed(self, texts):
         return None  # retrieval falls back to BM25, which needs no embedding model
@@ -262,6 +344,13 @@ class MockLLM:
         return "\n".join(bits)
 
 
+def _cloud():
+    """SAATHI_CLOUD_PROVIDER: 'gemini' (default, Gemma on the Gemini API) or 'openai' (any compatible API)."""
+    if os.getenv("SAATHI_CLOUD_PROVIDER", "gemini").lower() == "openai":
+        return CloudLLM()
+    return GeminiLLM()
+
+
 def get_llm(mode=None):
     """mode: 'ollama' | 'cloud' | 'mock' | 'auto' (default, env SAATHI_LLM).
 
@@ -272,11 +361,11 @@ def get_llm(mode=None):
     if mode == "mock":
         return MockLLM()
     if mode == "cloud":
-        return CloudLLM()
+        return _cloud()
     ollama = OllamaLLM()
     if mode == "ollama" or ollama.available():
         return ollama
-    cloud = CloudLLM()
+    cloud = _cloud()
     if cloud.available():
         return cloud
     return MockLLM()
